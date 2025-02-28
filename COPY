@@ -1,0 +1,117 @@
+import os
+import json
+import logging
+from datetime import date
+from dotenv import load_dotenv
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+# Load token dari .env
+load_dotenv()
+TOKEN = os.getenv("MASUKKAN_TOKEN_BOT")
+
+# Setup logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Simpan data pengguna ke file JSON
+DATA_FILE = "user_data.json"
+user_data = {}
+
+def load_user_data():
+    """Memuat data dari file JSON."""
+    global user_data
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            user_data = json.load(f)
+    else:
+        user_data = {}
+
+def save_user_data():
+    """Menyimpan data pengguna ke file JSON."""
+    with open(DATA_FILE, "w") as f:
+        json.dump(user_data, f)
+
+# Panggil saat bot mulai
+load_user_data()
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /start"""
+    await update.message.reply_text(
+        '🌞 Selamat pagi! Kirim /gm setiap hari untuk menjaga streak-mu!\n'
+        'Cek streak dengan /streak'
+    )
+
+async def gm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /gm"""
+    user = update.effective_user
+    today = date.today()
+
+    # Ambil atau inisialisasi data pengguna
+    data = user_data.get(str(user.id), {
+        'last_gm': None,
+        'streak': 0,
+        'longest_streak': 0
+    })
+
+    last_gm = data['last_gm']
+    streak = data['streak']
+
+    if last_gm:
+        last_gm_date = date.fromisoformat(last_gm)
+
+        if last_gm_date == today:
+            await update.message.reply_text(f"⏳ Kamu sudah GM hari ini! Streak: {streak} hari.")
+            return
+        elif (today - last_gm_date).days > 1:
+            streak = 0  # Reset streak jika lebih dari sehari tidak GM
+
+    # Perbarui streak
+    streak += 1
+    data['last_gm'] = today.isoformat()
+    data['streak'] = streak
+    data['longest_streak'] = max(data['longest_streak'], streak)
+
+    user_data[str(user.id)] = data
+    save_user_data()  # Simpan data
+
+    await update.message.reply_text(
+        f"🌞 GM! Streak kamu: {streak} hari\n"
+        f"🏆 Streak terpanjang: {data['longest_streak']} hari."
+    )
+
+async def streak(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler untuk command /streak"""
+    user = update.effective_user
+    data = user_data.get(str(user.id))
+
+    if data and data['streak'] > 0:
+        await update.message.reply_text(
+            f"🔥 Streak saat ini: {data['streak']} hari\n"
+            f"🏆 Streak terpanjang: {data['longest_streak']} hari"
+        )
+    else:
+        await update.message.reply_text("Kamu belum memulai streak GM harian! Kirim /gm untuk memulai.")
+
+def main():
+    """Memulai bot"""
+    if not TOKEN:
+        logger.error("TELEGRAM_TOKEN tidak ditemukan! Pastikan sudah diatur di environment variable atau file .env.")
+        return
+    
+    # Buat aplikasi bot
+    application = Application.builder().token(TOKEN).build()
+    
+    # Tambahkan command handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("gm", gm))
+    application.add_handler(CommandHandler("streak", streak))
+
+    logger.info("Bot berjalan...")
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
